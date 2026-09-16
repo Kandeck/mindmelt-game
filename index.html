@@ -11,10 +11,22 @@
     --bad:#ff4d5e; --warn:#ffd23d;
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink);
+  html,body{ margin:0; height:100%; color:var(--ink);
     font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,system-ui,sans-serif;
-    overflow:hidden; touch-action:manipulation; user-select:none; }
-  #bg{ position:fixed; inset:0; z-index:0; }
+    overflow:hidden; touch-action:manipulation; user-select:none;
+    background:radial-gradient(120% 80% at 50% -10%, #1a1140 0%, #0d0820 45%, #060410 100%); }
+  #bgwrap{ position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+  .blob{ position:absolute; border-radius:50%; filter:blur(70px); opacity:.35; }
+  .blob.b1{ width:52vw; height:52vw; left:-12vw; top:-8vh; background:#7a3bff;
+    animation:drift1 22s ease-in-out infinite; }
+  .blob.b2{ width:44vw; height:44vw; right:-10vw; top:28vh; background:#2f6bff;
+    animation:drift2 27s ease-in-out infinite; }
+  .blob.b3{ width:46vw; height:46vw; left:20vw; bottom:-14vh; background:#b026ff;
+    animation:drift3 25s ease-in-out infinite; opacity:.25; }
+  @keyframes drift1{ 50%{ transform:translate(8vw,10vh) scale(1.1); } }
+  @keyframes drift2{ 50%{ transform:translate(-9vw,-8vh) scale(1.15); } }
+  @keyframes drift3{ 50%{ transform:translate(6vw,-10vh) scale(1.05); } }
+  #bg{ position:fixed; inset:0; z-index:0; opacity:.5; }
   #app{ position:fixed; inset:0; z-index:1; display:flex; flex-direction:column;
     max-width:560px; margin:0 auto; padding:env(safe-area-inset-top) 14px 14px; }
 
@@ -63,10 +75,15 @@
   .tile .lbl{ text-shadow:0 1px 3px rgba(0,0,0,.6); pointer-events:none; }
 
   /* overlays */
-  .overlay{ position:absolute; inset:0; z-index:5; display:flex; flex-direction:column;
+  .overlay{ position:fixed; inset:0; z-index:30; display:flex; flex-direction:column;
     align-items:center; justify-content:center; text-align:center; padding:24px;
-    background:rgba(8,5,18,.86); backdrop-filter:blur(8px); }
+    background:rgba(8,5,18,.92); backdrop-filter:blur(10px); }
   .overlay.hidden{ display:none; }
+  /* new-rule card: fully opaque inner panel so nothing bleeds through */
+  #ovRule{ background:rgba(8,5,18,.97); }
+  #ruleCard{ background:linear-gradient(180deg,#1a1030,#120a24); border:2px solid var(--accent);
+    border-radius:18px; padding:22px 22px 20px; max-width:380px; width:100%;
+    box-shadow:0 0 40px rgba(178,109,255,.35), 0 18px 50px rgba(0,0,0,.6); }
   .title{ font-size:40px; font-weight:900; letter-spacing:4px;
     background:linear-gradient(90deg,#b26dff,#4d9dff,#3ddc84);
     -webkit-background-clip:text; background-clip:text; color:transparent;
@@ -102,6 +119,7 @@
 </style>
 </head>
 <body>
+<div id="bgwrap"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
 <canvas id="bg"></canvas>
 <div id="app">
   <div id="hud">
@@ -144,7 +162,7 @@
     <div class="huge" id="deadScore">0</div>
     <div style="color:var(--dim);font-size:14px;" id="deadStage">到达阶段</div>
     <div class="challenge hidden" id="deadCompare"></div>
-    <div style="font-size:13px;color:var(--dim);margin:8px 0 4px;" id="deadReason"></div>
+    <div style="font-size:13px;color:var(--dim);margin:8px 0 4px;white-space:pre-line;line-height:1.6;max-width:340px;" id="deadReason"></div>
     <button class="btn good" id="btnAgain">再来一局</button>
     <div class="row">
       <button class="btn ghost" id="btnShare">复制战绩</button>
@@ -154,6 +172,15 @@
   </div>
 </div>
 <div id="flash"><div class="fx" id="flashTxt"></div></div>
+<div class="overlay hidden" id="ovRule">
+  <div id="ruleCard">
+    <div style="font-size:13px;color:var(--warn);letter-spacing:2px;">⚡ 新机制解锁</div>
+    <div class="big" id="ruleCardTitle" style="margin:8px 0 4px;"></div>
+    <div class="sub" id="ruleCardBody" style="margin:12px auto 6px;"></div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:14px;" id="ruleCardCountdown"></div>
+    <button class="btn" id="btnRuleGo">我记住了，继续 ▶</button>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -214,15 +241,36 @@ const RULE_TEXT = {
   avoidBlink:"目标在**闪** → 改点**顺时针下一个**",
 };
 
-/* ---------------- judge (pure, testable) ---------------- */
+/* ---------------- judge (pure, testable) ----------------
+   2x2 cell layout indices:  0=左上 1=右上 / 2=左下 3=右下
+   diagonal(mirror): 0<->3, 1<->2  => 3-i
+   clockwise next: 0->1->3->2->0                                   */
+const CW_NEXT = {0:1, 1:3, 3:2, 2:0};
+const CELL_NAME = ["左上","右上","左下","右下"];
 function judge(targets, directive, rules){
+  return judgeExplain(targets, directive, rules).ans;
+}
+// returns {ans, steps:[...]} so death screen can explain the reasoning.
+function judgeExplain(targets, directive, rules){
+  const steps=[];
   let ans;
-  if(rules.includes("word")) ans = targets.findIndex(t=>t.label===directive);
-  else ans = targets.findIndex(t=>t.color===directive);
+  if(rules.includes("word")){
+    ans = targets.findIndex(t=>t.label===directive);
+    steps.push(`看规则「字」：找字写着「${directive}」的格 → ${CELL_NAME[ans]}`);
+  }else{
+    ans = targets.findIndex(t=>t.color===directive);
+    steps.push(`找「${directive}」色的格 → ${CELL_NAME[ans]}`);
+  }
   if(ans<0) ans=0;
-  if(rules.includes("mirror") && targets[ans].border) ans = 3-ans;
-  if(rules.includes("avoidBlink") && targets[ans].blink) ans = (ans+1)%4;
-  return ans;
+  if(rules.includes("mirror") && targets[ans].border){
+    ans = 3-ans;
+    steps.push(`它带黑框 → 改点对角 → ${CELL_NAME[ans]}`);
+  }
+  if(rules.includes("avoidBlink") && targets[ans].blink){
+    ans = CW_NEXT[ans];
+    steps.push(`它在闪 → 改点顺时针下一个 → ${CELL_NAME[ans]}`);
+  }
+  return {ans, steps};
 }
 
 /* ---------------- round generation ---------------- */
@@ -277,6 +325,8 @@ const G = {
   habit:[1,1,1,1],      // click-cell counts (stage 4)
   stage:STAGES[0],
   raf:0,
+  paused:false,         // true while a new-rule card is shown
+  prevRules:[], prevSplit:false, prevBetray:false,
 };
 const LS_BEST="mm_best", LS_BSTAGE="mm_bstage";
 G.best = +(localStorage.getItem(LS_BEST)||0);
@@ -376,10 +426,36 @@ function newRound(){
   renderDirective();
   renderBoard();
 
-  // timer: shrink with streak; split gets a bit more
-  const base = G.split ? 3.0 : 2.3;
-  G.limit = Math.max(0.85, base - G.streak*0.045);
-  G.roundStart = performance.now();
+  // timer: generous early so normal players reach ~15 rounds, then speeds up.
+  // more active rules => more reading time; split mode gets extra.
+  let base = 3.4 + rules.length * 0.9;      // 3.4s w/ 0 rules, +0.9s per stacked rule
+  if(G.split) base += 1.6;                   // two panels to read
+  // almost no decay for the first 15 rounds, gradual after that
+  const over = Math.max(0, G.streak - 15);
+  G.limit = Math.max(1.2, base - G.streak*0.02 - over*0.08);
+
+  // detect what just unlocked this round; if anything new, pause & show a card.
+  const newlyUnlocked = detectUnlocks(rules);
+  if(newlyUnlocked.length){
+    G.prevRules = rules.slice();
+    G.prevSplit = G.split; G.prevBetray = betray;
+    showRuleCard(newlyUnlocked);   // pauses; timer starts on confirm
+  }else{
+    G.prevRules = rules.slice();
+    G.prevSplit = G.split; G.prevBetray = betray;
+    G.roundStart = performance.now();
+  }
+}
+
+// figure out which mechanics are new compared to last round.
+function detectUnlocks(rules){
+  const out=[];
+  const prev = G.prevRules || [];
+  for(const r of rules){ if(!prev.includes(r)) out.push({type:"rule", key:r}); }
+  if(G.split && !G.prevSplit) out.push({type:"split"});
+  const betrayNow = (G.stage.id===4);
+  if(betrayNow && !G.prevBetray) out.push({type:"betray"});
+  return out;
 }
 
 function onPick(panelIdx, cell){
@@ -408,18 +484,75 @@ function onPick(panelIdx, cell){
       newRound();
     }
   }else{
-    die("点错了！");
+    die("wrong", {panelIdx, cell});
   }
 }
 
 function tick(now){
   if(G.state!=="playing") return;
+  if(G.paused){ G.raf=requestAnimationFrame(tick); return; }  // frozen during rule card
   const el=(now-G.roundStart)/1000;
   const frac=Math.max(0, 1-el/G.limit);
   $("timerBar").style.transform=`scaleX(${frac})`;
   $("timerBar").style.background = frac>.5?"linear-gradient(90deg,#3ddc84,#ffd23d)":frac>.25?"#ffd23d":"#ff4d5e";
-  if(el>=G.limit){ die("超时了！"); return; }
+  if(el>=G.limit){ die("timeout", {}); return; }
   G.raf=requestAnimationFrame(tick);
+}
+
+/* ---- new-rule card: pause, explain what just unlocked, resume on confirm ---- */
+const UNLOCK_INFO = {
+  word:      {t:"🎨 规则①：看字，别看颜色", b:"从现在起，指令说的颜色要去找<b style='color:#ffd23d'>字写着那个颜色</b>的格子——方块的填充色是来骗你的。"},
+  mirror:    {t:"⬛ 规则②：黑框要点对角", b:"如果你算出的目标<b style='color:#ffd23d'>带黑色边框</b>，就别点它，改点它的<b style='color:#ffd23d'>对角格</b>。"},
+  avoidBlink:{t:"✨ 规则③：闪烁要顺移", b:"如果你算出的目标<b style='color:#ffd23d'>正在闪</b>，就别点它，改点<b style='color:#ffd23d'>顺时针的下一个</b>格（左上→右上→右下→左下）。"},
+};
+function showRuleCard(unlocks){
+  G.paused = true;
+  // build combined title/body (usually one unlock per round, but handle multiple)
+  const parts = unlocks.map(u=>{
+    if(u.type==="rule") return UNLOCK_INFO[u.key];
+    if(u.type==="split") return {t:"🧠 屏幕裂开了！左右分脑", b:"现在有<b style='color:#ffd23d'>左右两个脑</b>，每半屏各有自己的指令，<b style='color:#ffd23d'>两边都要点对</b>才算过。之前的规则依然生效。"};
+    if(u.type==="betray") return {t:"👁 它开始反套你了", b:"正确答案会<b style='color:#ff4d5e'>躲开你最常点的位置</b>——别再靠肌肉记忆了，老实按规则算。"};
+    return {t:"新机制", b:""};
+  });
+  $("ruleCardTitle").innerHTML = parts.map(p=>p.t).join("　+　");
+  $("ruleCardBody").innerHTML  = parts.map(p=>p.b).join("<br><br>");
+  glitch();
+  $("ovRule").classList.remove("hidden");
+
+  // optional auto-resume countdown (also confirmable early)
+  let left=5;
+  $("ruleCardCountdown").textContent=`（${left} 秒后自动开始，或点按钮立即开始）`;
+  clearInterval(showRuleCard._iv);
+  showRuleCard._iv=setInterval(()=>{
+    left--;
+    if(left<=0){ resumeFromRuleCard(); }
+    else $("ruleCardCountdown").textContent=`（${left} 秒后自动开始，或点按钮立即开始）`;
+  },1000);
+}
+function resumeFromRuleCard(){
+  clearInterval(showRuleCard._iv);
+  $("ovRule").classList.add("hidden");
+  G.paused=false;
+  G.roundStart=performance.now();   // start this round's timer fresh
+}
+
+// build a human explanation of why the player died this round.
+function deathExplain(kind, info){
+  // in split mode, use the panel that failed / first unsolved panel
+  let pi = info.panelIdx!=null ? info.panelIdx : G.solved.findIndex(s=>!s);
+  if(pi<0) pi=0;
+  const p=G.panels[pi];
+  const ex=judgeExplain(p.targets, p.directive, p.rules);
+  const side = G.split ? (pi===0?"左脑：":"右脑：") : "";
+  const chain = ex.steps.join("　→　");
+  const correct = `正确是【${CELL_NAME[p.answer]}】`;
+  if(kind==="timeout"){
+    return { head:"⏱ 超时了", detail:`${side}${chain}。${correct}，手再快一点！` };
+  }
+  return {
+    head:"❌ 点错了",
+    detail:`${side}你点了【${CELL_NAME[info.cell]}】，但${correct}。\n推理：${chain}`
+  };
 }
 
 function stageFlash(stage){
@@ -432,21 +565,26 @@ function stageFlash(stage){
 /* ---------------- start / die ---------------- */
 function startGame(){
   G.state="playing"; G.streak=0; G.habit=[1,1,1,1];
+  G.paused=false; G.prevRules=[]; G.prevSplit=false; G.prevBetray=false;
+  clearInterval(showRuleCard._iv);
+  $("ovRule").classList.add("hidden");
   $("hStreak").textContent="0"; $("hBest").textContent=G.best;
   $("ovReady").classList.add("hidden"); $("ovDead").classList.add("hidden");
   newRound();
   cancelAnimationFrame(G.raf); G.raf=requestAnimationFrame(tick);
 }
-function die(reason){
+function die(kind, info){
   if(G.state!=="playing") return;
   G.state="dead"; cancelAnimationFrame(G.raf);
   glitch();
   const stage=stageForStreak(G.streak);
   if(G.streak>G.best){ G.best=G.streak; localStorage.setItem(LS_BEST,G.best); }
   if(stage.id>G.bestStage){ G.bestStage=stage.id; localStorage.setItem(LS_BSTAGE,stage.id); }
+  const why=deathExplain(kind, info||{});
   $("deadScore").textContent=G.streak;
   $("deadStage").textContent=`到达 第${stage.id}阶段 · ${stage.name}`;
-  $("deadReason").textContent=reason;
+  $("deadHead").textContent=why.head;
+  $("deadReason").textContent=why.detail;
   $("bestLine").textContent=`个人最佳：连对 ${G.best} · 最远第${G.bestStage}阶段`;
   // challenge compare
   if(chScore!=null){
@@ -497,8 +635,7 @@ function resize(){ W=bg.width=innerWidth; H=bg.height=innerHeight;
 }
 addEventListener("resize",resize); resize();
 function drawBG(){
-  bx.clearRect(0,0,W,H);
-  bx.fillStyle="#080512"; bx.fillRect(0,0,W,H);
+  bx.clearRect(0,0,W,H);   // transparent — static bg image shows through beneath
   for(const n of nodes){ n.x+=n.vx; n.y+=n.vy;
     if(n.x<0||n.x>W)n.vx*=-1; if(n.y<0||n.y>H)n.vy*=-1; }
   for(let i=0;i<nodes.length;i++){
@@ -522,6 +659,7 @@ if(chScore!=null){
 }
 $("btnStart").onclick=startGame;
 $("btnAgain").onclick=startGame;
+$("btnRuleGo").onclick=resumeFromRuleCard;
 $("btnShare").onclick=()=>copy(shareText());
 $("btnChallenge").onclick=()=>copy(shareText());
 
