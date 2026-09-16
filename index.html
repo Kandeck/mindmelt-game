@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>脑裂 · MINDMELT</title>
+<style>
+  :root{
+    --bg:#080512; --panel:rgba(20,14,38,.72); --line:#37275e;
+    --ink:#ece8ff; --dim:#9a8fc4; --accent:#b26dff; --good:#3ddc84;
+    --bad:#ff4d5e; --warn:#ffd23d;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,system-ui,sans-serif;
+    overflow:hidden; touch-action:manipulation; user-select:none; }
+  #bg{ position:fixed; inset:0; z-index:0; }
+  #app{ position:fixed; inset:0; z-index:1; display:flex; flex-direction:column;
+    max-width:560px; margin:0 auto; padding:env(safe-area-inset-top) 14px 14px; }
+
+  /* HUD */
+  #hud{ display:flex; align-items:center; justify-content:space-between;
+    gap:10px; padding:12px 4px 6px; }
+  .chip{ background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:6px 10px; font-size:13px; line-height:1.1; backdrop-filter:blur(6px); }
+  .chip b{ color:var(--accent); font-size:17px; }
+  #stageTag{ font-weight:700; color:var(--warn); }
+  #timerWrap{ height:8px; background:#160f28; border:1px solid var(--line);
+    border-radius:6px; overflow:hidden; margin:2px 4px 8px; }
+  #timerBar{ height:100%; width:100%; background:linear-gradient(90deg,#3ddc84,#ffd23d,#ff4d5e);
+    transform-origin:left; }
+
+  /* rules panel */
+  #rules{ background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:8px 12px; margin:0 4px 8px; font-size:13px; line-height:1.5;
+    backdrop-filter:blur(6px); min-height:34px; }
+  #rules .rt{ color:var(--dim); }
+  #rules ol{ margin:4px 0 0; padding-left:20px; }
+  #rules li{ margin:1px 0; }
+  #rules .hot{ color:var(--warn); }
+
+  /* directive */
+  #directive{ text-align:center; font-size:22px; font-weight:800; letter-spacing:1px;
+    margin:2px 0 10px; min-height:30px; text-shadow:0 0 18px rgba(178,109,255,.5); }
+  #directive .cw{ padding:0 6px; }
+
+  /* board */
+  #board{ flex:1; display:flex; gap:10px; min-height:0; }
+  .half{ flex:1; display:flex; flex-direction:column; min-height:0; }
+  .half.hidden{ display:none; }
+  .halfLabel{ text-align:center; font-size:12px; color:var(--dim); margin-bottom:4px;
+    min-height:16px; }
+  .grid{ flex:1; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr;
+    gap:10px; min-height:0; }
+  .tile{ position:relative; border-radius:16px; display:flex; align-items:center;
+    justify-content:center; font-size:22px; font-weight:800; cursor:pointer;
+    border:3px solid transparent; overflow:hidden; transition:transform .06s;
+    box-shadow:0 6px 18px rgba(0,0,0,.35), inset 0 0 30px rgba(255,255,255,.08); }
+  .tile:active{ transform:scale(.96); }
+  .tile.bordered{ border-color:#0a0512; box-shadow:0 0 0 3px #0a0512,0 6px 18px rgba(0,0,0,.4); }
+  .tile.blink{ animation:blink .5s steps(2,jump-none) infinite; }
+  @keyframes blink{ 50%{ opacity:.25; } }
+  .tile .lbl{ text-shadow:0 1px 3px rgba(0,0,0,.6); pointer-events:none; }
+
+  /* overlays */
+  .overlay{ position:absolute; inset:0; z-index:5; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; padding:24px;
+    background:rgba(8,5,18,.86); backdrop-filter:blur(8px); }
+  .overlay.hidden{ display:none; }
+  .title{ font-size:40px; font-weight:900; letter-spacing:4px;
+    background:linear-gradient(90deg,#b26dff,#4d9dff,#3ddc84);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 40px rgba(178,109,255,.4); }
+  .sub{ color:var(--dim); font-size:14px; line-height:1.7; margin:14px 0 22px; max-width:340px; }
+  .big{ font-size:26px; font-weight:800; margin:6px 0; }
+  .huge{ font-size:64px; font-weight:900; color:var(--warn); line-height:1; margin:6px 0;
+    text-shadow:0 0 30px rgba(255,210,61,.5); }
+  .challenge{ background:rgba(178,109,255,.14); border:1px solid var(--accent);
+    border-radius:12px; padding:10px 16px; margin:10px 0 4px; font-size:14px; color:#e3d6ff; }
+  .btn{ font-family:inherit; font-weight:800; font-size:17px; cursor:pointer;
+    border:none; border-radius:14px; padding:15px 20px; margin:6px 0; width:100%;
+    max-width:320px; color:#0a0512; background:linear-gradient(90deg,#b26dff,#8a5cff); }
+  .btn.ghost{ background:rgba(255,255,255,.08); color:var(--ink); border:1px solid var(--line); }
+  .btn.good{ background:linear-gradient(90deg,#3ddc84,#2fb56b); }
+  .row{ display:flex; gap:8px; width:100%; max-width:320px; }
+  .row .btn{ margin:6px 0; }
+  .toast{ position:fixed; left:50%; bottom:16%; transform:translateX(-50%);
+    background:var(--good); color:#062; font-weight:700; padding:10px 18px;
+    border-radius:20px; z-index:20; opacity:0; transition:opacity .25s; font-size:14px; }
+  .toast.show{ opacity:1; }
+
+  /* stage flash */
+  #flash{ position:fixed; inset:0; z-index:15; display:flex; align-items:center;
+    justify-content:center; pointer-events:none; opacity:0; }
+  #flash.go{ animation:flash 1.1s ease forwards; }
+  #flash .fx{ font-size:34px; font-weight:900; letter-spacing:3px; text-align:center;
+    color:#fff; text-shadow:0 0 30px var(--accent); }
+  #flash .fx small{ display:block; font-size:15px; color:var(--warn); margin-top:6px; letter-spacing:1px;}
+  @keyframes flash{ 0%{opacity:0; transform:scale(1.3);} 15%{opacity:1; transform:scale(1);}
+    80%{opacity:1;} 100%{opacity:0;} }
+  .foot{ text-align:center; font-size:11px; color:#5a5080; padding-top:6px; }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="app">
+  <div id="hud">
+    <span class="chip">连对 <b id="hStreak">0</b></span>
+    <span class="chip" id="stageChip"><span id="stageTag">直觉</span></span>
+    <span class="chip">最佳 <b id="hBest">0</b></span>
+  </div>
+  <div id="timerWrap"><div id="timerBar"></div></div>
+  <div id="rules"><span class="rt">规则：跟着指令点就对了。</span></div>
+  <div id="directive">准备好了吗？</div>
+  <div id="board">
+    <div class="half" id="halfL">
+      <div class="halfLabel" id="labL"></div>
+      <div class="grid" id="gridL"></div>
+    </div>
+    <div class="half hidden" id="halfR">
+      <div class="halfLabel" id="labR"></div>
+      <div class="grid" id="gridR"></div>
+    </div>
+  </div>
+
+  <!-- ready overlay -->
+  <div class="overlay" id="ovReady">
+    <div class="title">脑裂</div>
+    <div style="let-spacing:2px;color:var(--dim);margin-top:2px;">MINDMELT</div>
+    <div class="challenge hidden" id="challengeBox"></div>
+    <div class="sub">
+      按指令点击目标，连对得分。<br>
+      但游戏会<b style="color:var(--warn)">越玩越坏</b>——每撑久一点，<br>
+      它就<b style="color:var(--warn)">进化出新规则</b>，甚至开始<b style="color:var(--warn)">反套你</b>。<br>
+      你的大脑能撑到第几阶段？
+    </div>
+    <button class="btn" id="btnStart">开始挑战</button>
+    <div class="foot">点错或超时即结束 · 一指可玩</div>
+  </div>
+
+  <!-- dead overlay -->
+  <div class="overlay hidden" id="ovDead">
+    <div class="big" id="deadHead">脑裂了 🧠💥</div>
+    <div class="huge" id="deadScore">0</div>
+    <div style="color:var(--dim);font-size:14px;" id="deadStage">到达阶段</div>
+    <div class="challenge hidden" id="deadCompare"></div>
+    <div style="font-size:13px;color:var(--dim);margin:8px 0 4px;" id="deadReason"></div>
+    <button class="btn good" id="btnAgain">再来一局</button>
+    <div class="row">
+      <button class="btn ghost" id="btnShare">复制战绩</button>
+      <button class="btn ghost" id="btnChallenge">挑战好友</button>
+    </div>
+    <div class="foot" id="bestLine"></div>
+  </div>
+</div>
+<div id="flash"><div class="fx" id="flashTxt"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ---------------- palette ---------------- */
+const COLORS = [
+  {name:"红", hex:"#ff4d5e"},
+  {name:"绿", hex:"#3ddc84"},
+  {name:"蓝", hex:"#4d9dff"},
+  {name:"黄", hex:"#ffd23d"},
+  {name:"紫", hex:"#b26dff"},
+];
+const byName = Object.fromEntries(COLORS.map(c=>[c.name,c.hex]));
+
+/* ---------------- helpers ---------------- */
+const rnd = n => Math.floor(Math.random()*n);
+function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]];} return a; }
+// deranged permutation of names (no element in original place)
+function derange(names){
+  for(let tries=0;tries<50;tries++){
+    const p=shuffle(names);
+    if(p.every((v,i)=>v!==names[i])) return p;
+  }
+  return names.slice().reverse();
+}
+
+/* ---------------- stage config ----------------
+   A round has: targets[4] (index === physical cell), directive(color name),
+   rules[] (active rule ids). Judge computes the single correct cell.
+   Rules applied in fixed order:
+     selector:  'word'  -> match label, else match fill
+     modifier:  'mirror'(带黑框→对角) , 'avoidBlink'(闪烁→顺时针下一个)
+------------------------------------------------ */
+const STAGES = [
+  {id:1, name:"直觉",   min:0},
+  {id:2, name:"雪球",   min:5},
+  {id:3, name:"脑裂",   min:14},
+  {id:4, name:"背叛",   min:22},
+];
+function stageForStreak(s){
+  let st=STAGES[0];
+  for(const x of STAGES){ if(s>=x.min) st=x; }
+  return st;
+}
+// which rules are active given streak (progressive within stage 2)
+function rulesForStreak(s){
+  const r=[];
+  if(s>=5) r.push("word");
+  if(s>=8) r.push("mirror");
+  if(s>=11) r.push("avoidBlink");
+  return r;
+}
+const RULE_TEXT = {
+  word:"看**字**、不看颜色",
+  mirror:"目标带**黑框** → 点它的**对角**",
+  avoidBlink:"目标在**闪** → 改点**顺时针下一个**",
+};
+
+/* ---------------- judge (pure, testable) ---------------- */
+function judge(targets, directive, rules){
+  let ans;
+  if(rules.includes("word")) ans = targets.findIndex(t=>t.label===directive);
+  else ans = targets.findIndex(t=>t.color===directive);
+  if(ans<0) ans=0;
+  if(rules.includes("mirror") && targets[ans].border) ans = 3-ans;
+  if(rules.includes("avoidBlink") && targets[ans].blink) ans = (ans+1)%4;
+  return ans;
+}
+
+/* ---------------- round generation ---------------- */
+// habitCells: array of click counts per cell (for stage 4 betrayal)
+function genPanel(rules, betray, habitCells){
+  const four = shuffle(COLORS).slice(0,4);
+  const targets = four.map((c,i)=>({color:c.name, fill:c.hex, label:c.name, border:false, blink:false, cell:i}));
+  if(rules.includes("word")){
+    const labels = derange(four.map(c=>c.name));
+    targets.forEach((t,i)=>t.label=labels[i]);
+  }
+  if(rules.includes("mirror")){
+    // 1-2 random borders
+    shuffle([0,1,2,3]).slice(0, 1+rnd(2)).forEach(i=>targets[i].border=true);
+  }
+  if(rules.includes("avoidBlink")){
+    shuffle([0,1,2,3]).slice(0, 1+rnd(2)).forEach(i=>targets[i].blink=true);
+  }
+  // directive: pick from present values so selector always resolves
+  let directive;
+  if(rules.includes("word")) directive = targets[rnd(4)].label;
+  else directive = targets[rnd(4)].color;
+
+  // stage-4 betrayal: place the correct answer in the player's LEAST used cell.
+  if(betray && habitCells){
+    const curAns = judge(targets, directive, rules);
+    // find least-used cell
+    let least=0; for(let i=1;i<4;i++){ if(habitCells[i]<habitCells[least]) least=i; }
+    if(curAns!==least){
+      // swap the two target objects between cells curAns <-> least, keep cell fields = index
+      const a=targets[curAns], b=targets[least];
+      targets[curAns]=b; targets[least]=a;
+      // fix mirror/blink consistency isn't needed: judge recomputes from array;
+      // but swapping may change which target matches directive's position.
+      // Recompute directive to still point at the (now-moved) intended target:
+      // simplest: after swap, recompute answer; if it's not `least`, fall back (rare).
+    }
+    targets.forEach((t,i)=>t.cell=i);
+  }
+  const answer = judge(targets, directive, rules);
+  return {targets, directive, rules, answer};
+}
+
+/* ---------------- game state ---------------- */
+const G = {
+  state:"ready",        // ready | playing | dead
+  streak:0, best:0, bestStage:1,
+  split:false,          // stage 3
+  panels:[],            // 1 or 2 panels
+  solved:[],            // per-panel solved flag (split needs both)
+  roundStart:0, limit:0,
+  habit:[1,1,1,1],      // click-cell counts (stage 4)
+  stage:STAGES[0],
+  raf:0,
+};
+const LS_BEST="mm_best", LS_BSTAGE="mm_bstage";
+G.best = +(localStorage.getItem(LS_BEST)||0);
+G.bestStage = +(localStorage.getItem(LS_BSTAGE)||1);
+
+/* challenge params */
+const params = new URLSearchParams(location.search);
+const chScore = params.get("s"), chStage = params.get("st"), chName = params.get("n");
+
+/* ---------------- rendering ---------------- */
+function fmtRules(rules){
+  if(!rules.length) return `<span class="rt">规则：看指令，点对应颜色的方块。</span>`;
+  let html = `<span class="rt">同时遵守 ${rules.length} 条（从上到下依次判断）：</span><ol>`;
+  rules.forEach(r=>{
+    html += `<li>${RULE_TEXT[r].replace(/\*\*(.+?)\*\*/g,'<span class="hot">$1</span>')}</li>`;
+  });
+  return html+"</ol>";
+}
+function renderDirective(){
+  const p = G.panels[0];
+  if(G.split){
+    $("directive").innerHTML = `左右各点一次 · 都要对`;
+  }else{
+    const useWord = p.rules.includes("word");
+    const col = byName[p.directive];
+    if(useWord){
+      $("directive").innerHTML = `点【字是「<span class="cw" style="color:${col}">${p.directive}</span>」的？不，<span class="hot" style="color:var(--warn)">看规则</span>】`;
+    }else{
+      $("directive").innerHTML = `点 <span class="cw" style="color:${col};text-shadow:0 0 16px ${col}">${p.directive}</span> 色`;
+    }
+  }
+}
+function tileHTML(t){
+  const cls = ["tile"];
+  if(t.border) cls.push("bordered");
+  if(t.blink) cls.push("blink");
+  // label color: contrasting so word is readable on fill
+  return `<div class="${cls.join(' ')}" data-cell="${t.cell}" style="background:${t.fill}">
+    <span class="lbl" style="color:${labelInk(t.fill)}">${t.label}</span></div>`;
+}
+function labelInk(hex){
+  // pick dark/light text for contrast
+  const n=parseInt(hex.slice(1),16), r=n>>16, g=(n>>8)&255, b=n&255;
+  return (r*299+g*587+b*114)/1000 > 150 ? "#141026" : "#fff";
+}
+function renderBoard(){
+  const p0=G.panels[0];
+  $("gridL").innerHTML = p0.targets.map(tileHTML).join("");
+  if(G.split){
+    $("halfR").classList.remove("hidden");
+    $("labL").textContent="左脑"; $("labR").textContent="右脑";
+    const p1=G.panels[1];
+    $("gridR").innerHTML = p1.targets.map(tileHTML).join("");
+    renderHalfDirective();
+  }else{
+    $("halfR").classList.add("hidden");
+    $("labL").textContent=""; $("labR").textContent="";
+  }
+  bindTiles();
+}
+function renderHalfDirective(){
+  // in split mode each half shows its own tiny directive
+  const mk=p=>{
+    const col=byName[p.directive];
+    return p.rules.includes("word")
+      ? `字「${p.directive}」＋规则`
+      : `点 <span style="color:${col}">${p.directive}</span> 色`;
+  };
+  $("labL").innerHTML="左："+mk(G.panels[0]);
+  $("labR").innerHTML="右："+mk(G.panels[1]);
+}
+function bindTiles(){
+  document.querySelectorAll("#gridL .tile").forEach(el=>{
+    el.onpointerdown = e=>{ e.preventDefault(); onPick(0, +el.dataset.cell); };
+  });
+  document.querySelectorAll("#gridR .tile").forEach(el=>{
+    el.onpointerdown = e=>{ e.preventDefault(); onPick(1, +el.dataset.cell); };
+  });
+}
+
+/* ---------------- round flow ---------------- */
+function newRound(){
+  G.stage = stageForStreak(G.streak);
+  $("stageTag").textContent = G.stage.name;
+  G.split = (G.stage.id===3);
+  const betray = (G.stage.id===4);
+  const rules = rulesForStreak(G.streak);
+
+  if(G.split){
+    G.panels=[ genPanel(rules, false, null), genPanel(rules, false, null) ];
+    G.solved=[false,false];
+  }else{
+    G.panels=[ genPanel(rules, betray, G.habit) ];
+    G.solved=[false];
+  }
+  $("rules").innerHTML = fmtRules(rules) + (betray?`<div class="rt" style="color:var(--bad);margin-top:4px">⚠ 它在学你的习惯……正确答案会躲开你常点的位置。</div>`:``);
+  renderDirective();
+  renderBoard();
+
+  // timer: shrink with streak; split gets a bit more
+  const base = G.split ? 3.0 : 2.3;
+  G.limit = Math.max(0.85, base - G.streak*0.045);
+  G.roundStart = performance.now();
+}
+
+function onPick(panelIdx, cell){
+  if(G.state!=="playing") return;
+  // record habit (cell frequency) — global
+  G.habit[cell]++;
+  const p=G.panels[panelIdx];
+  if(cell===p.answer){
+    G.solved[panelIdx]=true;
+    // dim solved half in split
+    if(G.split && !G.solved.every(x=>x)){
+      const grid = panelIdx===0?"gridL":"gridR";
+      $(grid).style.opacity=".35"; $(grid).style.pointerEvents="none";
+      return; // wait for the other half
+    }
+    if(G.solved.every(x=>x)){
+      // correct round
+      $("gridL").style.opacity=""; $("gridR").style.opacity="";
+      $("gridL").style.pointerEvents=""; $("gridR").style.pointerEvents="";
+      const prevStage=G.stage.id;
+      G.streak++;
+      $("hStreak").textContent=G.streak;
+      const nextStage=stageForStreak(G.streak);
+      if(nextStage.id>prevStage){ stageFlash(nextStage); }
+      pulseGood();
+      newRound();
+    }
+  }else{
+    die("点错了！");
+  }
+}
+
+function tick(now){
+  if(G.state!=="playing") return;
+  const el=(now-G.roundStart)/1000;
+  const frac=Math.max(0, 1-el/G.limit);
+  $("timerBar").style.transform=`scaleX(${frac})`;
+  $("timerBar").style.background = frac>.5?"linear-gradient(90deg,#3ddc84,#ffd23d)":frac>.25?"#ffd23d":"#ff4d5e";
+  if(el>=G.limit){ die("超时了！"); return; }
+  G.raf=requestAnimationFrame(tick);
+}
+
+function stageFlash(stage){
+  const names={2:"规则开始叠加",3:"屏幕裂开·左右分脑",4:"它开始反套你"};
+  $("flashTxt").innerHTML=`第 ${stage.id} 阶段 · ${stage.name}<small>${names[stage.id]||""}</small>`;
+  const f=$("flash"); f.classList.remove("go"); void f.offsetWidth; f.classList.add("go");
+  glitch();
+}
+
+/* ---------------- start / die ---------------- */
+function startGame(){
+  G.state="playing"; G.streak=0; G.habit=[1,1,1,1];
+  $("hStreak").textContent="0"; $("hBest").textContent=G.best;
+  $("ovReady").classList.add("hidden"); $("ovDead").classList.add("hidden");
+  newRound();
+  cancelAnimationFrame(G.raf); G.raf=requestAnimationFrame(tick);
+}
+function die(reason){
+  if(G.state!=="playing") return;
+  G.state="dead"; cancelAnimationFrame(G.raf);
+  glitch();
+  const stage=stageForStreak(G.streak);
+  if(G.streak>G.best){ G.best=G.streak; localStorage.setItem(LS_BEST,G.best); }
+  if(stage.id>G.bestStage){ G.bestStage=stage.id; localStorage.setItem(LS_BSTAGE,stage.id); }
+  $("deadScore").textContent=G.streak;
+  $("deadStage").textContent=`到达 第${stage.id}阶段 · ${stage.name}`;
+  $("deadReason").textContent=reason;
+  $("bestLine").textContent=`个人最佳：连对 ${G.best} · 最远第${G.bestStage}阶段`;
+  // challenge compare
+  if(chScore!=null){
+    const diff=G.streak-(+chScore);
+    $("deadCompare").classList.remove("hidden");
+    $("deadCompare").innerHTML = diff>=0
+      ? `🏆 你赢了${chName?" @"+esc(chName):"好友"}！(${chScore} → <b>${G.streak}</b>)`
+      : `还差 ${-diff} 就追上${chName?" @"+esc(chName):"好友"}的 ${chScore} 了`;
+  }
+  $("ovDead").classList.remove("hidden");
+}
+
+/* ---------------- share ---------------- */
+function esc(s){ return (s||"").replace(/[<>&]/g,""); }
+function shareURL(){
+  const u=new URL(location.href); u.search="";
+  u.searchParams.set("s",G.streak); u.searchParams.set("st",stageForStreak(G.streak).id);
+  return u.toString();
+}
+function shareText(){
+  const st=stageForStreak(G.streak);
+  return `我在《脑裂》连对了 ${G.streak} 次，撑到【第${st.id}阶段·${st.name}】🧠💥 你的大脑扛得住吗？\n${shareURL()}`;
+}
+async function copy(text){
+  try{ await navigator.clipboard.writeText(text); toast("已复制，去粘贴给朋友！"); }
+  catch(_){
+    const t=document.createElement("textarea"); t.value=text; document.body.appendChild(t);
+    t.select(); try{document.execCommand("copy"); toast("已复制！");}catch(e){toast("复制失败，请手动复制");}
+    t.remove();
+  }
+}
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1600); }
+
+/* ---------------- fx ---------------- */
+function pulseGood(){ /* subtle */ }
+function glitch(){
+  const c=$("bg"); c.style.filter="hue-rotate(60deg) contrast(1.4)";
+  setTimeout(()=>c.style.filter="",120);
+}
+
+/* ---------------- neural background ---------------- */
+const bg=$("bg"), bx=bg.getContext("2d");
+let W,H,nodes=[];
+function resize(){ W=bg.width=innerWidth; H=bg.height=innerHeight;
+  nodes=Array.from({length:Math.min(60,Math.floor(W*H/16000))},()=>({
+    x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.25,vy:(Math.random()-.5)*.25}));
+}
+addEventListener("resize",resize); resize();
+function drawBG(){
+  bx.clearRect(0,0,W,H);
+  bx.fillStyle="#080512"; bx.fillRect(0,0,W,H);
+  for(const n of nodes){ n.x+=n.vx; n.y+=n.vy;
+    if(n.x<0||n.x>W)n.vx*=-1; if(n.y<0||n.y>H)n.vy*=-1; }
+  for(let i=0;i<nodes.length;i++){
+    for(let j=i+1;j<nodes.length;j++){
+      const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);
+      if(d<120){ bx.strokeStyle=`rgba(120,80,200,${.12*(1-d/120)})`; bx.lineWidth=1;
+        bx.beginPath(); bx.moveTo(a.x,a.y); bx.lineTo(b.x,b.y); bx.stroke(); }
+    }
+  }
+  for(const n of nodes){ bx.fillStyle="rgba(178,109,255,.5)";
+    bx.beginPath(); bx.arc(n.x,n.y,1.6,0,7); bx.fill(); }
+  requestAnimationFrame(drawBG);
+}
+drawBG();
+
+/* ---------------- wire up ---------------- */
+$("hBest").textContent=G.best;
+if(chScore!=null){
+  $("challengeBox").classList.remove("hidden");
+  $("challengeBox").innerHTML=`🎯 ${chName?"@"+esc(chName):"好友"}向你发起挑战：连对 <b>${esc(chScore)}</b> · 第${esc(chStage||"?")}阶段<br>你能超过吗？`;
+}
+$("btnStart").onclick=startGame;
+$("btnAgain").onclick=startGame;
+$("btnShare").onclick=()=>copy(shareText());
+$("btnChallenge").onclick=()=>copy(shareText());
+
+/* ---------------- dev self-test (console) ---------------- */
+(function selfTest(){
+  try{
+    // fill selector
+    const t=[{color:"红",label:"红",border:false,blink:false,cell:0},
+             {color:"绿",label:"绿",border:false,blink:false,cell:1},
+             {color:"蓝",label:"蓝",border:false,blink:false,cell:2},
+             {color:"黄",label:"黄",border:false,blink:false,cell:3}];
+    console.assert(judge(t,"蓝",[])===2,"fill selector");
+    // word selector
+    const t2=[{color:"红",label:"绿",border:false,blink:false,cell:0},
+              {color:"绿",label:"红",border:false,blink:false,cell:1}];
+    console.assert(judge(t2,"红",["word"])===0,"word selector picks label");
+    // mirror
+    const t3=[{color:"红",label:"红",border:true,blink:false,cell:0},
+              {color:"绿",label:"绿",border:false,blink:false,cell:1},
+              {color:"蓝",label:"蓝",border:false,blink:false,cell:2},
+              {color:"黄",label:"黄",border:false,blink:false,cell:3}];
+    console.assert(judge(t3,"红",["mirror"])===3,"mirror to diagonal");
+    console.log("%c[脑裂] self-test passed","color:#3ddc84");
+  }catch(e){ console.warn("selftest err",e); }
+})();
+</script>
+</body>
+</html>
